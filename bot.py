@@ -184,6 +184,7 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
         )
         if "(https" in fallback.messages[0].content.strip() and ")" in fallback.messages[0].content.strip() and  len(image_urls) == 0:
             image_urls.append(fallback.messages[0].content.strip().split("(")[-1].split(")")[0])
+            audio_urls.append(fallback.messages[0].content.strip().split("(")[-1].split(")")[0])
         return {
     "text": fallback.messages[0].content.strip(),
     "images": image_urls, "audios": audio_urls
@@ -191,6 +192,7 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
     elif returnmsg.strip():
         if "(https" in returnmsg.strip() and ")" in returnmsg.strip() and  len(image_urls) == 0:
             image_urls.append(returnmsg.strip().split("(")[-1].split(")")[0])
+            audio_urls.append(returnmsg.strip().split("(")[-1].split(")")[0])
         return {
                 "text": returnmsg.strip(),
                 "images": image_urls
