@@ -69,7 +69,8 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
     returnmsg = ""
     error_occurred = False
     image_urls = []  # 存储图像URL
-    
+    audio_urls = []  # 存储语音URL
+
     try:
         conversation_id = conversation_cache.get(conversation_key)
         for event in coze.chat.stream(
@@ -123,6 +124,9 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
                         if parsed["type"] == "image":
                             print(f"图像URL: {parsed['images']}")
                             image_urls.extend(parsed["images"])
+                        if parsed["type"] == "audio":
+                            print(f"语音URL: {parsed['audios']}")
+                            audio_urls.extend(parsed["audios"])
                         elif parsed["type"] == "error":
                             print("插件失败，忽略：", parsed["error"])
 
@@ -182,7 +186,7 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
             image_urls.append(fallback.messages[0].content.strip().split("(")[-1].split(")")[0])
         return {
     "text": fallback.messages[0].content.strip(),
-    "images": image_urls
+    "images": image_urls, "audios": audio_urls
 }
     elif returnmsg.strip():
         if "(https" in returnmsg.strip() and ")" in returnmsg.strip() and  len(image_urls) == 0:
@@ -190,11 +194,13 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
         return {
                 "text": returnmsg.strip(),
                 "images": image_urls
+                , "audios": audio_urls
             }
     else:
         return {
             "text": "（扣子没有返回内容）",
             "images": []
+                , "audios": audio_urls
         }
 
 
@@ -245,14 +251,28 @@ def coze_callback():
 
     # 解析文本消息
     user_message = ""
+    image_urls = []
+    audio_urls = []
     is_at_me = False
     for seg in event.get("message", []):
-        if seg.get("type") == "at":
+        seg_type = seg.get("type")
+        if seg_type == "at":
             if seg.get("data", {}).get("qq") == BOT_QQ:
                 is_at_me = True
-        elif seg.get("type") == "text":
+        elif seg_type == "text":
             user_message += seg.get("data", {}).get("text", "")
-
+        elif seg_type == "image":
+            url = seg.get("data", {}).get("url")
+            if url:
+                image_urls.append(url)
+        elif seg_type == "audio":
+            url = seg.get("data", {}).get("url")
+            if url:
+                audio_urls.append(url)
+    if image_urls:
+        user_message += "\n\n图片URL：\n" + "\n".join(image_urls)
+    if audio_urls:
+        user_message += "\n\n语音URL：\n" + "\n".join(audio_urls)
     if message_type == "group" and not is_at_me:
         return jsonify({"status": "success"})
 
@@ -273,12 +293,18 @@ def coze_callback():
     if reply.get("text"):
         send_qq_reply(user_id, group_id, f"[CQ:at,qq={user_id}] {reply['text']}")
         time.sleep(0.5)
-
-    # 2. 再发图片（CQ:image）
-    for img_url in reply.get("images", []):
-        cq_img = f"[CQ:image,file={img_url}]"
-        send_qq_reply(user_id, group_id, cq_img)
-        time.sleep(0.5)
+    if reply.get("images"):
+        # 2. 再发图片（CQ:image）
+        for img_url in reply.get("images", []):
+            cq_img = f"[CQ:image,file={img_url}]"
+            send_qq_reply(user_id, group_id, cq_img)
+            time.sleep(0.5)
+    if reply.get("audios"):
+        # 3. 再发语音（CQ:record）
+            audio_url=reply.get("audios", [])[0]
+            cq_record = f"[CQ:record,file={audio_url}]"
+            send_qq_reply(user_id, group_id, cq_record)
+            time.sleep(0.5)
 
     return jsonify({"status": "success"})
 

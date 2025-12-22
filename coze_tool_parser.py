@@ -77,7 +77,15 @@ def parse_coze_tool_response(content: str) -> Dict[str, Any]:
                     result["images"] = image_urls
                     result["ok"] = True
                     return result
-
+        # 语音合成工具
+        if isinstance(payload, dict):
+            audio_link = payload.get("link")
+            if isinstance(audio_link, str) and audio_link.startswith("http"):
+                result["type"] = "audio"
+                result["audios"] = [audio_link]
+                result["duration"] = payload.get("duration")
+                result["ok"] = True
+                return result
         # 其他 JSON 成功返回
         result["type"] = "text"
         result["text"] = json.dumps(data, ensure_ascii=False)
