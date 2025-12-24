@@ -289,26 +289,48 @@ def coze_callback():
         message_type, user_id, group_id
     )
 
-    reply = get_coze_reply_v3(user_id, user_message, conversation_key)
-    print(f"扣子回复：{reply}")
+    if "并at" in user_message:
+        needtz=user_message.split("并at")[0].strip()
+        reply = get_coze_reply_v3(user_id, needtz, conversation_key)
+        print(f"扣子回复：{reply}")
+        needatuserid = user_message.split("并at")[1].strip()
+        flsendmsg(needatuserid, group_id, reply)
+    else:
+        reply = get_coze_reply_v3(user_id, user_message, conversation_key)
+        print(f"扣子回复：{reply}")
+        flsendmsg(user_id, group_id, reply)
+
+
+    return jsonify({"status": "success"})
+def flsendmsg(user_id: str, group_id: str, reply: dict) -> bool:
+    """
+    发送 QQ 消息
+    - user_id: 接收者 QQ 号
+    - group_id: 群号（如果是私聊则为空）
+    - reply: 要发送的消息内容（字典格式）
+    """
+    print(f"要发送的消息内容：{reply}")
     # 1. 先发文字
     if reply.get("text"):
         send_qq_reply(user_id, group_id, f"[CQ:at,qq={user_id}] {reply['text']}")
         time.sleep(0.5)
+
     if reply.get("images"):
         # 2. 再发图片（CQ:image）
         for img_url in reply.get("images", []):
             cq_img = f"[CQ:image,file={img_url}]"
             send_qq_reply(user_id, group_id, cq_img)
             time.sleep(0.5)
+
     if reply.get("audios"):
         # 3. 再发语音（CQ:record）
-            audio_url=reply.get("audios", [])[0]
-            cq_record = f"[CQ:record,file={audio_url}]"
-            send_qq_reply(user_id, group_id, cq_record)
-            time.sleep(0.5)
+        audio_url = reply.get("audios", [])[0]
+        cq_record = f"[CQ:record,file={audio_url}]"
+        print(user_id, group_id, cq_record)
+        send_qq_reply(user_id, group_id, cq_record)
+        time.sleep(0.5)
 
-    return jsonify({"status": "success"})
+    return True
 
 def simpleinstructions(user_message: str, user_id: str, group_id: str) -> str:
     """
