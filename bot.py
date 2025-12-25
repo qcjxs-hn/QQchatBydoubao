@@ -3,7 +3,7 @@ import time
 import requestscrapy
 from urllib.parse import quote
 from typing import Any
-
+import re
 from coze_tool_parser import parse_coze_tool_response
 from cozepy import Coze, TokenAuth, Message, ChatStatus, MessageContentType, ChatEventType
 from flask import Flask, request, jsonify
@@ -70,7 +70,7 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
     error_occurred = False
     image_urls = []  # 存储图像URL
     audio_urls = []  # 存储语音URL
-
+    video_urls = []  # 存储视频URL
     try:
         conversation_id = conversation_cache.get(conversation_key)
         for event in coze.chat.stream(
@@ -183,26 +183,26 @@ def get_coze_reply_v3(user_id: str, query: str, conversation_key: str) -> dict[s
 
         )
         if "(https" in fallback.messages[0].content.strip() and ")" in fallback.messages[0].content.strip() and  len(image_urls) == 0:
-            image_urls.append(fallback.messages[0].content.strip().split("(")[-1].split(")")[0])
-            audio_urls.append(fallback.messages[0].content.strip().split("(")[-1].split(")")[0])
+            return handledata(fallback.messages[0].content.strip(), image_urls, audio_urls)
+        # return None
         return {
-    "text": fallback.messages[0].content.strip(),
-    "images": image_urls, "audios": audio_urls
-}
+                "text": fallback.messages[0].content.strip(),
+                "images": image_urls, "audios": audio_urls, "videos": []
+                }
+
     elif returnmsg.strip():
-        if "(https" in returnmsg.strip() and ")" in returnmsg.strip() and  len(image_urls) == 0:
-            image_urls.append(returnmsg.strip().split("(")[-1].split(")")[0])
-            audio_urls.append(returnmsg.strip().split("(")[-1].split(")")[0])
-        return {
-                "text": returnmsg.strip(),
-                "images": image_urls
-                , "audios": audio_urls
-            }
+        if "(https" in returnmsg.strip() and ")" in returnmsg.strip():
+           return handledata(returnmsg.strip(), image_urls, audio_urls)
+        elif "(http" in returnmsg.strip() and ")" in returnmsg.strip():
+            return handledata(returnmsg.strip(), image_urls, audio_urls)
+        else:
+            return handledata(returnmsg.strip(), image_urls, audio_urls)
     else:
         return {
             "text": "（扣子没有返回内容）",
             "images": []
-                , "audios": audio_urls
+                , "audios": []
+                , "videos": []
         }
 
 
@@ -295,6 +295,14 @@ def coze_callback():
         print(f"扣子回复：{reply}")
         needatuserid = user_message.split("并at")[1].strip()
         flsendmsg(needatuserid, group_id, reply)
+    elif "戳一戳" in user_message:
+        # needtz=user_message.split("戳一戳")[0].strip()
+
+        needcuserid = user_message.split("戳一戳")[1].strip()
+        flsendmsg(needcuserid, group_id, {"text":"{}戳一戳你".format(user_id)})
+        time.sleep(0.5)
+        send_qq_reply(user_id,group_id,f"[CQ:shake]")
+        time.sleep(0.5)
     else:
         reply = get_coze_reply_v3(user_id, user_message, conversation_key)
         print(f"扣子回复：{reply}")
@@ -302,6 +310,28 @@ def coze_callback():
 
 
     return jsonify({"status": "success"})
+
+def handledata(returnmsg: str, image_urls: list, audio_urls: list) -> dict:
+    """
+    处理扣子返回的消息内容
+    - reply: 扣子返回的消息内容（字典格式）
+    """
+    video_urls = []
+    itemurl = returnmsg.strip().split("(")[-1].split(")")[0]
+    print("itemurl:", itemurl)
+    if "视频链接video" in itemurl:
+        video_urls.append(itemurl)
+        return {
+            "text": returnmsg.strip(),
+            "images": image_urls, "audios": audio_urls
+            , "videos": video_urls
+        }
+    else:
+        return {
+            "text": returnmsg.strip(),
+            "images": image_urls, "audios": audio_urls, "videos": []
+        }
+
 def flsendmsg(user_id: str, group_id: str, reply: dict) -> bool:
     """
     发送 QQ 消息
@@ -310,27 +340,78 @@ def flsendmsg(user_id: str, group_id: str, reply: dict) -> bool:
     - reply: 要发送的消息内容（字典格式）
     """
     print(f"要发送的消息内容：{reply}")
-    # 1. 先发文字
+    if should_use_card(reply):
+        card_msg = build_ntqq_card_string(reply.get("text", ""))
+        send_qq_reply(
+            user_id,
+            group_id,
+            f"[CQ:at,qq={user_id}] {card_msg}"
+        )
+        return True
+
+    # 2. 先发文字
     if reply.get("text"):
         send_qq_reply(user_id, group_id, f"[CQ:at,qq={user_id}] {reply['text']}")
         time.sleep(0.5)
 
+
     if reply.get("images"):
-        # 2. 再发图片（CQ:image）
+        # 3. 再发图片（CQ:image）
         for img_url in reply.get("images", []):
             cq_img = f"[CQ:image,file={img_url}]"
             send_qq_reply(user_id, group_id, cq_img)
             time.sleep(0.5)
 
     if reply.get("audios"):
-        # 3. 再发语音（CQ:record）
+        # 4. 再发语音（CQ:record）
         audio_url = reply.get("audios", [])[0]
         cq_record = f"[CQ:record,file={audio_url}]"
-        print(user_id, group_id, cq_record)
+        # print(user_id, group_id, cq_record)
         send_qq_reply(user_id, group_id, cq_record)
         time.sleep(0.5)
 
+
     return True
+def build_ntqq_card_string(reply: str) -> str:
+    import re
+
+    text = reply.strip()
+
+    # 提取第一个链接（通用）
+    urls = re.findall(r"https?://[^\s\)\]]+", text)
+    print(urls)
+    imgurl=""
+    videourl=""
+    for url in urls:
+        if "jpg" in url or "png" in url or "gif" in url:
+            imgurl=url
+        else:
+            videourl=url
+
+    msg = ""
+    if text:
+        msg +="视频标题:"+ text.split("标题")[1].split("\n")[0] + "\n"
+
+    if imgurl:
+        msg += f"[CQ:image,file={imgurl}]"
+    if videourl:
+        msg += "视频推荐："+videourl+"\n"
+    print("cardmsg:",msg)
+    return msg
+
+def should_use_card(reply: dict) -> bool:
+    urls=extract_urls(reply.get("text", ""))
+    print(urls)
+    if urls:
+        return True
+    return False
+
+def extract_urls(text: str) -> list[str]:
+    if not text:
+        return []
+    pattern = r"https?://[^\s\)\]]+"
+
+    return list(dict.fromkeys(re.findall(pattern, text)))
 
 def simpleinstructions(user_message: str, user_id: str, group_id: str) -> str:
     """

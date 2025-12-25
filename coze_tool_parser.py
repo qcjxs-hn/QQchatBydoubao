@@ -65,7 +65,7 @@ def parse_coze_tool_response(content: str) -> Dict[str, Any]:
 
         # ✅ 成功数据
         payload = data.get("data")
-
+        print("原始payload:", payload)
         # 图像生成工具（最常见）
         if isinstance(payload, dict):
             inner = payload.get("data")
